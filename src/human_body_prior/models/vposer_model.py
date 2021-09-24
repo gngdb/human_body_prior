@@ -29,9 +29,9 @@ from torch import nn
 from torch.nn import functional as F
 
 
-class ContinousRotReprDecoder(nn.Module):
+class ContinuousRotReprDecoder(nn.Module):
     def __init__(self):
-        super(ContinousRotReprDecoder, self).__init__()
+        super(ContinuousRotReprDecoder, self).__init__()
 
     def forward(self, module_input):
         reshaped_input = module_input.view(-1, 3, 2)
@@ -84,7 +84,7 @@ class VPoser(nn.Module):
             nn.Linear(num_neurons, num_neurons),
             nn.LeakyReLU(),
             nn.Linear(num_neurons, self.num_joints * 6),
-            ContinousRotReprDecoder(),
+            ContinuousRotReprDecoder(),
         )
 
     def encode(self, pose_body):
