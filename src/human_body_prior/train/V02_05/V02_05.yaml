@@ -1,84 +1,58 @@
----
 body_model:
+  bm_fname: ./smplx/SMPLX_NEUTRAL.npz
   gender: neutral
-  bm_fname: ../../../../support_data/dowloads/models/smplx/neutral/model.npz
-
+data_parms:
+  amass_dir: ./data/npzfiles
+  amass_splits:
+    test:
+    - BMLrub_test
+    train:
+    - CMU
+    - BMLrub_train
+    vald:
+    - BMLrub_vald
+  num_timeseq_frames: {}
+  num_workers: 5
 general:
-  verbosity: 0
-  expr_id:
-  dataset_id: V02_03 #SMPLx neutral
+  dataset_basedir: ./data/ptfiles
+  dataset_id: V02_03
+  expr_id: V02_05
   rnd_seed: 100
-  work_basedir: ../../../../support_data/training/training_experiments
-  dataset_basedir: ../../../../support_data/training/data
-
+  verbosity: 0
+  work_basedir: .
 logging:
-  expr_msg:
+  best_model_fname: null
+  dataset_dir: ./data/ptfiles/V02_05
+  expr_msg: '[V02_05] batch_size = 128.'
   num_bodies_to_display: 25
-  work_dir:
-  dataset_dir:
-  render_during_training: False
-  best_model_fname:
-
+  render_during_training: false
+  work_dir: .
+model_params:
+  latentD: 32
+  num_neurons: 512
 train_parms:
-  batch_size:
-  num_epochs: 100
-  restore_optimizer: False
+  batch_size: 128
+  early_stopping:
+    min_delta: 0.0
+    mode: min
+    monitor: val_loss
+    patience: 10
+    verbose: true
   gen_optimizer:
-    type: Adam
     args:
       lr: 0.001
-      weight_decay: 0.00001
-  lr_scheduler:
-    type: ReduceLROnPlateau
-    args:
-      #      metrics: val_loss
-      verbose: true
-      patience: 5
-  early_stopping:
-    monitor: val_loss
-    min_delta: 0.0
-    patience: 10
-    verbose: True
-    mode: min
+      weight_decay: 1.0e-05
+    type: Adam
   keep_extra_loss_terms_until_epoch: 15
   loss_weights:
-    loss_kl_wt: 0.005
-    loss_rec_wt: 4
-    loss_matrot_wt: 2
     loss_jtr_wt: 2
-
-
-data_parms:
-  num_workers: 5 # Used for dataloaders
-  amass_dir: support_data/dowloads/amass/smplx_neutral
-  num_timeseq_frames: 1
-  amass_splits:
-    vald:
-#      - HumanEva
-#      - MPI_HDM05
-#      - SFU
-#      - MPI_mosh
-      - BMLrub_vald
-    train:
-      - CMU
-      - BMLrub_train
-#      - MPI_Limits
-#      - TotalCapture
-#      - Eyes_Japan_Dataset
-#      - KIT
-#      - BMLrub
-#      - EKUT
-#      - TCD_handMocap
-#      - ACCAD
-#      - BMLmovi
-    test:
-      - BMLrub_test
-#      - Transitions_mocap
-#      - SSM_synced
-#      - DFaust_67
-
-
-model_params:
-  num_neurons : 512
-  latentD : 32
-
+    loss_kl_wt: 0.005
+    loss_matrot_wt: 2
+    loss_rec_wt: 4
+  lr_scheduler:
+    args:
+      patience: 5
+      verbose: true
+    type: ReduceLROnPlateau
+  num_epochs: 100
+  restore_optimizer: false

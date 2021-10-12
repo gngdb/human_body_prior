@@ -34,7 +34,9 @@ class ContinuousRotReprDecoder(nn.Module):
         super(ContinuousRotReprDecoder, self).__init__()
 
     def forward(self, module_input):
-        reshaped_input = module_input.view(-1, 3, 2)
+        bs, d = module_input.size()
+        nj = d // 6 # num_joints inference
+        reshaped_input = module_input.view(bs*nj, 3, 2)
 
         b1 = F.normalize(reshaped_input[:, :, 0], dim=1)
 

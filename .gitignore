@@ -16,3 +16,6 @@ support_data/dowloads/models/smplx/*
 
 support_data/dowloads/vposer_v2_05/*
 support_data/dowloads/vposer_v1_0/*
+
+*.zip
+

@@ -126,8 +126,13 @@ def prepare_vposer_datasets(vposer_dataset_dir, amass_splits, amass_dir, logger=
 
         logger('{} datapoints dumped for split {}. ds_meta_pklpath: {}'.format(len(v), split_name, osp.join(vposer_dataset_dir, split_name)))
 
+    def encourage_to_dict(x):
+        if hasattr(x, 'toDict'):
+            return x.toDict()
+        else:
+            return x
     Configer(**{
-        'amass_splits':amass_splits.toDict(),
+        'amass_splits':encourage_to_dict(amass_splits),
         'amass_dir': amass_dir,
     }).dump_settings(makepath(vposer_dataset_dir, 'settings.ini', isfile=True))
 

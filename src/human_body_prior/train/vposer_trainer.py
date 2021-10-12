@@ -26,6 +26,7 @@
 import glob
 import os
 import os.path as osp
+from pathlib import Path
 from datetime import datetime as dt
 from pytorch_lightning.plugins import DDPPlugin
 
@@ -45,7 +46,7 @@ from human_body_prior.tools.omni_tools import log2file
 from human_body_prior.tools.omni_tools import make_deterministic
 from human_body_prior.tools.omni_tools import makepath
 from human_body_prior.tools.rotation_tools import aa2matrot
-from human_body_prior.visualizations.training_visualization import vposer_trainer_renderer
+#from human_body_prior.visualizations.training_visualization import vposer_trainer_renderer
 from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
@@ -87,8 +88,9 @@ class VPoserTrainer(LightningModule):
         self.vp_model = VPoser(vp_ps)
 
         with torch.no_grad():
-
-            self.bm_train = BodyModel(vp_ps.body_model.bm_fname)
+            bm_path = vp_ps.body_model.bm_fname
+            assert Path(bm_path).exists()
+            self.bm_train = BodyModel(bm_path, persistant_buffer=True)
 
         if vp_ps.logging.render_during_training:
             self.renderer = vposer_trainer_renderer(self.bm_train, vp_ps.logging.num_bodies_to_display)
@@ -192,15 +194,19 @@ class VPoserTrainer(LightningModule):
         p_z = torch.distributions.normal.Normal(
             loc=torch.zeros((bs, latentD), device=device, requires_grad=False),
             scale=torch.ones((bs, latentD), device=device, requires_grad=False))
+        # this is an inefficient way to calculate the KL divergence
+        dkl = torch.mean(torch.sum(torch.distributions.kl.kl_divergence(q_z, p_z), dim=[1]))
         weighted_loss_dict = {
-            'loss_kl':loss_kl_wt * torch.mean(torch.sum(torch.distributions.kl.kl_divergence(q_z, p_z), dim=[1])),
+            'loss_kl':loss_kl_wt * dkl,
             'loss_mesh_rec': loss_rec_wt * v2v
         }
 
+        geodesic_matrot = geodesic_loss(drec['pose_body_matrot'].view(-1,3,3), aa2matrot(dorig['pose_body'].view(-1, 3)))
+        jtr = l1_loss(bm_rec.Jtr, bm_orig.Jtr)
+
         if (self.current_epoch < self.vp_ps.train_parms.keep_extra_loss_terms_until_epoch):
-            # breakpoint()
-            weighted_loss_dict['matrot'] = loss_matrot_wt * geodesic_loss(drec['pose_body_matrot'].view(-1,3,3), aa2matrot(dorig['pose_body'].view(-1, 3)))
-            weighted_loss_dict['jtr'] = loss_jtr_wt * l1_loss(bm_rec.Jtr, bm_orig.Jtr)
+            weighted_loss_dict['matrot'] = loss_matrot_wt * geodesic_matrot
+            weighted_loss_dict['jtr'] = loss_jtr_wt * jtr
 
         weighted_loss_dict['loss_total'] = torch.stack(list(weighted_loss_dict.values())).sum()
 
@@ -209,7 +215,15 @@ class VPoserTrainer(LightningModule):
             unweighted_loss_dict['loss_total'] = torch.cat(
                 list({k: v.view(-1) for k, v in unweighted_loss_dict.items()}.values()), dim=-1).sum().view(1)
 
-        return {'weighted_loss': weighted_loss_dict, 'unweighted_loss': unweighted_loss_dict}
+        all_losses = {
+                    'v2v': v2v,
+                    'kl': dkl,
+                    'geodesic_matrot': geodesic_matrot,
+                    'jtr': jtr
+                }
+        return {'weighted_loss': weighted_loss_dict,
+                'unweighted_loss': unweighted_loss_dict, 
+                'all_losses': all_losses}
 
     def training_step(self, batch, batch_idx, optimizer_idx=None):
 
@@ -228,7 +242,8 @@ class VPoserTrainer(LightningModule):
         drec = self(batch['pose_body'].view(-1, 63))
 
         loss = self._compute_loss(batch, drec)
-        val_loss = loss['unweighted_loss']['loss_total']
+        all_losses = {k:v.item() for k,v in loss['all_losses'].items()}
+        val_loss = loss['unweighted_loss']['loss_total'].item()
 
         if self.renderer is not None and self.global_rank == 0 and batch_idx % 500==0 and np.random.rand()>0.5:
             out_fname = makepath(self.work_dir, 'renders/vald_rec_E{:03d}_It{:04d}_val_loss_{:.2f}.png'.format(self.current_epoch, batch_idx, val_loss.item()), isfile=True)
@@ -239,10 +254,17 @@ class VPoserTrainer(LightningModule):
 
 
         progress_bar = {'v2v': val_loss}
-        return {'val_loss': c2c(val_loss), 'progress_bar': progress_bar, 'log': progress_bar}
+        output_dict = {'val_loss': val_loss, 'progress_bar': progress_bar, 'log': progress_bar}
+        for k, v in all_losses.items():
+            output_dict[k] = v
+        return output_dict
 
     def validation_epoch_end(self, outputs):
-        metrics = {'val_loss': np.nanmean(np.concatenate([v['val_loss'] for v in outputs])) }
+        metrics = {}
+        for k in ['val_loss', 'v2v', 'kl', 'geodesic_matrot', 'jtr']:
+            def nanmean(x):
+                return np.nanmean(np.array(x))
+            metrics[k] = nanmean([v[k] for v in outputs])
 
         if self.global_rank == 0:
 
@@ -313,6 +335,11 @@ def train_vposer_once(_config):
         if len(available_ckpts)>0:
             resume_from_checkpoint = available_ckpts[-1]
             model.text_logger('Resuming the training from {}'.format(resume_from_checkpoint))
+    assert resume_from_checkpoint is not None, f"{Path.cwd()} {model.work_dir}"
+    if resume_from_checkpoint is None:
+        print("NOT LOADING FROM CHECKPOINT")
+    else:
+        print(f"Loading {resume_from_checkpoint}")
 
     trainer = pl.Trainer(gpus=1,
                          weights_summary='top',
@@ -334,4 +361,7 @@ def train_vposer_once(_config):
                          resume_from_checkpoint=resume_from_checkpoint
                          )
 
-    trainer.fit(model)
+    #trainer.fit(model)
+    #print(trainer.test(model=model))
+    model.load_from_checkpoint(resume_from_checkpoint, _config=_config)
+    print(trainer.validate(model=model, ckpt_path=resume_from_checkpoint))
